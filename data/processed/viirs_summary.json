@@ -1,0 +1,242 @@
+[
+  {
+    "year": 2020,
+    "month": 1,
+    "filename": "VIIRS_Java_2020_01.tif",
+    "valid_pixels": 1261300,
+    "mean_radiance": 0.8570454120635986,
+    "min_radiance": 0.0,
+    "max_radiance": 1192.9300537109375,
+    "sum_radiance": 1080991.375
+  },
+  {
+    "year": 2020,
+    "month": 2,
+    "filename": "VIIRS_Java_2020_02.tif",
+    "valid_pixels": 1267442,
+    "mean_radiance": 0.840305507183075,
+    "min_radiance": 0.0,
+    "max_radiance": 952.2999877929688,
+    "sum_radiance": 1065038.5
+  },
+  {
+    "year": 2020,
+    "month": 3,
+    "filename": "VIIRS_Java_2020_03.tif",
+    "valid_pixels": 1237211,
+    "mean_radiance": 1.122031569480896,
+    "min_radiance": 0.0,
+    "max_radiance": 3730.0400390625,
+    "sum_radiance": 1388189.75
+  },
+  {
+    "year": 2020,
+    "month": 4,
+    "filename": "VIIRS_Java_2020_04.tif",
+    "valid_pixels": 1539112,
+    "mean_radiance": 0.9566636681556702,
+    "min_radiance": 0.0,
+    "max_radiance": 1328.449951171875,
+    "sum_radiance": 1472412.5
+  },
+  {
+    "year": 2020,
+    "month": 5,
+    "filename": "VIIRS_Java_2020_05.tif",
+    "valid_pixels": 1536731,
+    "mean_radiance": 0.8536663055419922,
+    "min_radiance": 0.0,
+    "max_radiance": 496.25,
+    "sum_radiance": 1311855.5
+  },
+  {
+    "year": 2020,
+    "month": 6,
+    "filename": "VIIRS_Java_2020_06.tif",
+    "valid_pixels": 1541602,
+    "mean_radiance": 0.9078752398490906,
+    "min_radiance": 0.0,
+    "max_radiance": 980.760009765625,
+    "sum_radiance": 1399582.25
+  },
+  {
+    "year": 2020,
+    "month": 7,
+    "filename": "VIIRS_Java_2020_07.tif",
+    "valid_pixels": 1543190,
+    "mean_radiance": 0.8497480750083923,
+    "min_radiance": 0.0,
+    "max_radiance": 1166.5999755859375,
+    "sum_radiance": 1311322.75
+  },
+  {
+    "year": 2020,
+    "month": 8,
+    "filename": "VIIRS_Java_2020_08.tif",
+    "valid_pixels": 1542810,
+    "mean_radiance": 0.9446801543235779,
+    "min_radiance": 0.0,
+    "max_radiance": 816.4199829101562,
+    "sum_radiance": 1457462.0
+  },
+  {
+    "year": 2020,
+    "month": 9,
+    "filename": "VIIRS_Java_2020_09.tif",
+    "valid_pixels": 1543222,
+    "mean_radiance": 0.942009449005127,
+    "min_radiance": 0.0,
+    "max_radiance": 1961.219970703125,
+    "sum_radiance": 1453729.75
+  },
+  {
+    "year": 2020,
+    "month": 10,
+    "filename": "VIIRS_Java_2020_10.tif",
+    "valid_pixels": 1336346,
+    "mean_radiance": 1.0000245571136475,
+    "min_radiance": 0.0,
+    "max_radiance": 1756.3900146484375,
+    "sum_radiance": 1336378.75
+  },
+  {
+    "year": 2020,
+    "month": 11,
+    "filename": "VIIRS_Java_2020_11.tif",
+    "valid_pixels": 1320958,
+    "mean_radiance": 1.0548715591430664,
+    "min_radiance": 0.0,
+    "max_radiance": 2113.300048828125,
+    "sum_radiance": 1393441.0
+  },
+  {
+    "year": 2020,
+    "month": 12,
+    "filename": "VIIRS_Java_2020_12.tif",
+    "valid_pixels": 623437,
+    "mean_radiance": 0.6577078700065613,
+    "min_radiance": 0.0,
+    "max_radiance": 991.4500122070312,
+    "sum_radiance": 410039.40625
+  },
+  {
+    "year": 2021,
+    "month": 1,
+    "filename": "VIIRS_Java_2021_01.tif",
+    "valid_pixels": 55389,
+    "mean_radiance": 0.7926180362701416,
+    "min_radiance": 0.0,
+    "max_radiance": 171.55999755859375,
+    "sum_radiance": 43902.3203125
+  },
+  {
+    "year": 2021,
+    "month": 2,
+    "filename": "VIIRS_Java_2021_02.tif",
+    "valid_pixels": 530596,
+    "mean_radiance": 0.6529759168624878,
+    "min_radiance": 0.0,
+    "max_radiance": 422.2799987792969,
+    "sum_radiance": 346466.40625
+  },
+  {
+    "year": 2021,
+    "month": 3,
+    "filename": "VIIRS_Java_2021_03.tif",
+    "valid_pixels": 1349366,
+    "mean_radiance": 1.1876518726348877,
+    "min_radiance": 0.0,
+    "max_radiance": 795.47998046875,
+    "sum_radiance": 1602577.0
+  },
+  {
+    "year": 2021,
+    "month": 4,
+    "filename": "VIIRS_Java_2021_04.tif",
+    "valid_pixels": 1535172,
+    "mean_radiance": 1.0997625589370728,
+    "min_radiance": 0.0,
+    "max_radiance": 881.47998046875,
+    "sum_radiance": 1688324.625
+  },
+  {
+    "year": 2021,
+    "month": 5,
+    "filename": "VIIRS_Java_2021_05.tif",
+    "valid_pixels": 1542697,
+    "mean_radiance": 1.0620559453964233,
+    "min_radiance": 0.0,
+    "max_radiance": 1118.3199462890625,
+    "sum_radiance": 1638430.5
+  },
+  {
+    "year": 2021,
+    "month": 6,
+    "filename": "VIIRS_Java_2021_06.tif",
+    "valid_pixels": 1542623,
+    "mean_radiance": 0.9803526401519775,
+    "min_radiance": 0.0,
+    "max_radiance": 806.7100219726562,
+    "sum_radiance": 1512314.5
+  },
+  {
+    "year": 2021,
+    "month": 7,
+    "filename": "VIIRS_Java_2021_07.tif",
+    "valid_pixels": 1542859,
+    "mean_radiance": 0.9771535396575928,
+    "min_radiance": 0.0,
+    "max_radiance": 902.9299926757812,
+    "sum_radiance": 1507610.125
+  },
+  {
+    "year": 2021,
+    "month": 8,
+    "filename": "VIIRS_Java_2021_08.tif",
+    "valid_pixels": 1544234,
+    "mean_radiance": 1.0890768766403198,
+    "min_radiance": 0.0,
+    "max_radiance": 1178.1099853515625,
+    "sum_radiance": 1681789.625
+  },
+  {
+    "year": 2021,
+    "month": 9,
+    "filename": "VIIRS_Java_2021_09.tif",
+    "valid_pixels": 1474517,
+    "mean_radiance": 1.0104886293411255,
+    "min_radiance": 0.0,
+    "max_radiance": 683.489990234375,
+    "sum_radiance": 1489982.625
+  },
+  {
+    "year": 2021,
+    "month": 10,
+    "filename": "VIIRS_Java_2021_10.tif",
+    "valid_pixels": 1520355,
+    "mean_radiance": 1.0441776514053345,
+    "min_radiance": 0.0,
+    "max_radiance": 664.3900146484375,
+    "sum_radiance": 1587520.75
+  },
+  {
+    "year": 2021,
+    "month": 11,
+    "filename": "VIIRS_Java_2021_11.tif",
+    "valid_pixels": 773263,
+    "mean_radiance": 1.2912416458129883,
+    "min_radiance": 0.0,
+    "max_radiance": 807.1799926757812,
+    "sum_radiance": 998469.375
+  },
+  {
+    "year": 2021,
+    "month": 12,
+    "filename": "VIIRS_Java_2021_12.tif",
+    "valid_pixels": 558082,
+    "mean_radiance": 0.8461011052131653,
+    "min_radiance": 0.0,
+    "max_radiance": 182.3800048828125,
+    "sum_radiance": 472193.78125
+  }
+]
