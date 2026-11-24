@@ -1,74 +1,65 @@
-# D-LUMEN
+# D-LUMEN — Centralized Master–Worker
 
-Distributed database processing untuk ringkasan VIIRS Nighttime Lights. Prototipe menyediakan discovery otomatis, registry/heartbeat, partisi temporal, static/dynamic scheduling, multiprocessing worker, retry/requeue, idempotent result, dashboard, dan benchmark lokal.
+D-LUMEN memproses ringkasan VIIRS dengan satu Master (PostgreSQL `dlumen_db`) dan hingga
+sembilan Worker fisik di LAN/Wi-Fi. Worker tidak memasang PostgreSQL, `psycopg2`, Flask,
+atau Rasterio. Dataset mentah tetap berada di `data/raw/*.tif` pada Master.
 
-## Setup
+Audit dan keputusan migrasi lengkap ada di `docs/REFACTOR_MASTER_WORKER.md`.
+
+## Menyiapkan Master (macOS/Windows)
 
 ```bash
 python -m venv .venv
-# macOS/Linux: source .venv/bin/activate
-# Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
-
-Pada setiap Worker yang memakai query PostgreSQL, buat database `dlumen_db`, lalu jalankan schema dan import data (keduanya aman dijalankan ulang):
-
-```bash
+# macOS: source .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -r requirements-master.txt
+python -m preprocessing.viirs_processor
 python -m database.init_db
 python -m database.import_viirs
+python -m master.master_server
 ```
 
-Salin `.env.example` ke `.env`. Gunakan token acak yang sama di seluruh node. Sandria memakai `DLUMEN_DB_HOST=/tmp`, `DLUMEN_DB_USER=sandrianuriya`; Windows memakai host `127.0.0.1`, user `postgres`, port 5432/5433, dan password hanya di environment lokal.
+Salin `.env.example` menjadi `.env`, isi kredensial PostgreSQL dan token. Master mendengarkan
+`0.0.0.0:5050`; PostgreSQL tidak perlu dan tidak boleh diekspos kepada Worker.
 
-## Menjalankan
+## Menyiapkan setiap Worker
 
-Mac master: `chmod +x scripts/*.sh && ./scripts/start_master.sh`. Dashboard: `http://localhost:5050`.
-
-Worker macOS: `./scripts/start_worker.sh`. Worker Kenanga/Fawwaz: `powershell -ExecutionPolicy Bypass -File scripts/start_worker.ps1`. Beri `DLUMEN_WORKER_ID` unik. Worker ke-3 sampai ke-9 memakai source dan token yang sama; tidak perlu edit source. Jika UDP diblokir AP isolation/VLAN/firewall, isi `DLUMEN_MASTER_URL=http://IP-MASTER:5050` (fallback eksplisit, bukan scanning).
-
-Buat job dari master:
+Salin source tanpa folder `data/`, buat virtualenv, lalu `pip install -r requirements-worker.txt`.
+Atur `DLUMEN_MASTER_URL=http://IP-MASTER:5050`, `DLUMEN_TOKEN`, dan `DLUMEN_WORKER_ID` unik.
+`DLUMEN_PROCESSES` boleh dikosongkan agar memakai `os.cpu_count()`.
 
 ```bash
-curl -X POST http://localhost:5050/api/jobs -H "X-DLUMEN-Token: $DLUMEN_TOKEN" -H 'Content-Type: application/json' -d '{"operation":"aggregate","start_year":2020,"end_year":2025,"months_per_task":1,"scheduling":"dynamic"}'
-curl http://localhost:5050/api/results
+# macOS/Linux
+./scripts/start_worker.sh
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File scripts/start_worker.ps1
 ```
 
-Atau: `.venv/bin/python -m parallel.distributed_query --operation aggregate --scheduling dynamic --wait`.
-
-Operation: `aggregate`, `search`, `highest`, `lowest`, `annual`, `trend`, dan `raster_aggregate`. Mode raster membaca seluruh piksel GeoTIFF per bulan dan menghitung statistik serta histogram; gunakan mode ini untuk workload UAS yang lebih representatif. Filter search dapat dimasukkan pada `params`: `min_mean`, `max_mean`, `limit`.
-
-## Arti 10 node fisik
-
-Node adalah satu komputer/perangkat independen yang mempunyai OS, CPU, RAM, dan koneksi jaringan sendiri. Susunan minimal adalah **1 komputer Master + 9 komputer Worker = 10 komputer fisik**. Sembilan terminal, container, VM, atau proses pada MacBook yang sama tidak dihitung sebagai sembilan node fisik. Master Sandria boleh sekaligus menjalankan database lokal, tetapi untuk pembuktian yang aman jangan dihitung lagi sebagai Worker.
-
-Contoh topologi: laptop Sandria sebagai Master; laptop Kenanga dan Fawwaz sebagai Worker 1–2; enam PC laboratorium sebagai Worker 3–8; satu laptop tambahan sebagai Worker 9. Semuanya tersambung ke Wi-Fi/LAN yang sama dan terlihat sebagai sembilan `worker_id`/hostname berbeda di dashboard.
-
-Untuk dataset terbagi, isi `DLUMEN_PARTITIONS=2020,2021` pada node Sandria, `2022,2023` pada Kenanga, dan seterusnya. Benchmark scalability 1/2/4/6/9 membutuhkan seluruh workload dapat diakses pada setiap konfigurasi; cara paling sederhana adalah menyalin dataset yang sama ke sembilan Worker. Untuk eksperimen fault tolerance, setiap partisi harus tersedia minimal pada dua Worker.
-
-Test discovery dengan mengosongkan `DLUMEN_MASTER_URL`, jalankan master/worker pada LAN yang sama, lalu periksa `/api/workers`. Fault tolerance: mulai job dengan replika tersedia pada minimal dua worker, hentikan proses worker yang sedang running, tunggu heartbeat timeout, dan amati `retrying` lalu `completed`. Tanpa partisi replika, task tetap pending secara jujur.
+## Membuat job dan melihat metrik
 
 ```bash
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m benchmark.run_benchmark --processes 1 --output benchmark/sequential
-.venv/bin/python -m benchmark.run_benchmark --processes 4 --baseline-seconds NILAI_T1 --output benchmark/local4
-.venv/bin/python -m benchmark.plot_results benchmark/sequential.csv benchmark/local4.csv --output benchmark/comparison.png
+curl -X POST http://localhost:5050/jobs \
+  -H "X-DLUMEN-Token: $DLUMEN_TOKEN" -H "Content-Type: application/json" \
+  -d '{"operation":"aggregate","start_year":2020,"end_year":2025,"worker_count":2}'
+curl http://localhost:5050/metrics
 ```
 
-Workload piksel nyata dan benchmark distributed resmi:
+Operasi: `aggregate`, `extreme` (parameter `threshold`), dan `growth`. Scheduling dapat
+`dynamic` (work-pulling) atau `static` untuk pembanding.
+
+## Benchmark enam skenario UAS
 
 ```bash
-.venv/bin/python -m benchmark.run_benchmark --operation raster_aggregate --start-year 2020 --end-year 2021 --processes 1 --output benchmark/raster-sequential
-.venv/bin/python -m benchmark.distributed_benchmark --operation raster_aggregate --workers 1,2,4,6,9 --scheduling static,dynamic --repetitions 3 --baseline-seconds NILAI_T1 --output benchmark/distributed
+python -m benchmark.run_experiments --start-year 2020 --end-year 2025 \
+  --scalability 1,2,4,6,9 --output benchmark/results/uas
 ```
 
-Benchmark runner hanya menulis hasil pengukuran nyata ke CSV/JSON. Eksperimen distributed fisik dan grafik baru boleh dibuat setelah node tersedia. Lihat `docs/UAS_REPORT.md`.
+Skenario fault tolerance memerlukan `--fault-command` yang menghentikan tepat satu Worker.
+CSV dan JSON memuat execution time, speedup, efficiency, throughput, CPU/RAM, dan recovery time.
+Gunakan `--local-only` untuk hanya menjalankan sequential dan local parallel.
 
-## Gate dan pengumpulan
+## Verifikasi
 
 ```bash
-python scripts/gate.py --quick          # compile + automated tests
-python scripts/gate.py --workers 2      # termasuk E2E Master/Worker nyata
-python scripts/pack_source.py           # ZIP tanpa .env/.venv/GeoTIFF/cache
+python -m pytest -q
 ```
-
-Panduan demo fisik ada di `docs/DEPLOYMENT-PHYSICAL.md`; protokol di `docs/PROTOCOL.md`; strategi test di `docs/TESTING.md`; skenario eksperimen di `docs/EXPERIMENTS.md`.

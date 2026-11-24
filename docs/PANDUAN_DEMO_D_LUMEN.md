@@ -1,5 +1,8 @@
 # Panduan Pelaksanaan Demo D-LUMEN pada 10 Perangkat Fisik
 
+> **Arsip arsitektur lama.** Gunakan `README.md` dan `docs/REFACTOR_MASTER_WORKER.md`
+> untuk Master terpusat. Instruksi PostgreSQL atau GeoTIFF pada Worker di dokumen ini tidak berlaku lagi.
+
 Panduan ini digunakan oleh Sandria, Kenanga, Fawwaz, dan pemilik perangkat tambahan untuk menyiapkan serta menjalankan demo D-LUMEN. Target minimal adalah satu komputer Master dan sembilan komputer Worker yang terhubung ke jaringan yang sama. Semua pengujian harus memakai data nyata dan hasil yang ditampilkan harus sesuai kondisi sistem.
 
 ## 1. Susunan Sistem

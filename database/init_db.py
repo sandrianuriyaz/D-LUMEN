@@ -1,17 +1,13 @@
-"""Safely create/upgrade the D-LUMEN database schema."""
+"""Safely create/upgrade the central master database schema."""
 from pathlib import Path
+from master.repository import connection
 
-from parallel.db import connection
 
-
-def main():
+def main() -> None:
     schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
-    with connection() as conn:
-        with conn.cursor() as cursor:
-            cursor.execute(schema)
-        conn.commit()
-    print("D-LUMEN schema siap (data lama tidak dihapus).")
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(schema); conn.commit()
+    print("Schema dlumen_db siap di Master (data lama tidak dihapus).")
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()

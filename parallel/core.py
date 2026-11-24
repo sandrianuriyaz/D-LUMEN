@@ -130,6 +130,7 @@ class TaskStore:
         with self.lock:
             for task in self.tasks.values():
                 if task.status == TaskStatus.RUNNING and task.started_at and now-task.started_at > timeout:
+                    task.recovery_started_at = now
                     self.fail(task.task_id, "task timeout")
                     expired.append(task.task_id)
         return expired

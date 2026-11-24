@@ -31,26 +31,17 @@ def main() -> int:
     parser.add_argument("--role", choices=["master", "worker"], required=True)
     args = parser.parse_args(); checks = []
     checks.append(mark(bool(os.getenv("DLUMEN_TOKEN")), "DLUMEN_TOKEN terisi"))
-    modules = ["flask", "requests", "psutil", "psycopg2", "numpy", "rasterio"]
+    modules = (["flask", "requests", "psutil", "psycopg2", "numpy", "rasterio"]
+               if args.role == "master" else ["requests", "psutil", "numpy"])
     for module in modules:
         checks.append(mark(importlib.util.find_spec(module) is not None, f"dependency {module}"))
     print(f"[INFO] hostname={socket.gethostname()} cpu={os.cpu_count() or 'unknown'}")
     if args.role == "worker":
-        data_dir = Path(os.getenv("DLUMEN_DATA_DIR", "data/raw"))
-        files = list(data_dir.glob("VIIRS_Java_*.tif"))
-        checks.append(mark(bool(files), f"GeoTIFF tersedia: {len(files)} file di {data_dir}"))
-        checks.append(mark(int(os.getenv("DLUMEN_PROCESSES", "1")) >= 2,
-                           "DLUMEN_PROCESSES minimal 2"))
+        checks.append(mark(bool(os.getenv("DLUMEN_MASTER_URL")), "DLUMEN_MASTER_URL terisi"))
         print(f"[INFO] worker_id={os.getenv('DLUMEN_WORKER_ID') or 'otomatis hostname+MAC'}")
-        print(f"[INFO] partitions={os.getenv('DLUMEN_PARTITIONS') or 'semua (pastikan data lengkap)'}")
-        try:
-            from parallel.db import connection
-            with connection() as conn, conn.cursor() as cursor:
-                cursor.execute("SELECT COUNT(*) FROM viirs_monthly")
-                rows = cursor.fetchone()[0]
-            checks.append(mark(rows > 0, f"PostgreSQL viirs_monthly: {rows} baris"))
-        except Exception as exc:
-            checks.append(mark(False, f"PostgreSQL belum siap: {type(exc).__name__}: {exc}"))
+        worker_source = Path("worker/worker_node.py").read_text(encoding="utf-8")
+        checks.append(mark("psycopg2" not in worker_source,
+                           "kode Worker tidak bergantung pada psycopg2"))
     else:
         print(f"[INFO] master_port={os.getenv('DLUMEN_MASTER_PORT', '5050')}")
     print(f"\n{'SIAP' if all(checks) else 'BELUM SIAP'}: {sum(checks)}/{len(checks)} pemeriksaan lulus")

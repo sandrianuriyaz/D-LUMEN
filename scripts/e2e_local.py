@@ -40,7 +40,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--processes", type=int, default=2)
-    parser.add_argument("--year", type=int, default=2020)
+    parser.add_argument("--year", type=int, default=2024)
     args = parser.parse_args()
     if not 1 <= args.workers <= 9:
         raise SystemExit("--workers harus 1..9")
@@ -48,23 +48,21 @@ def main() -> int:
     run_dir = Path(tempfile.mkdtemp(prefix="dlumen-e2e-")); processes = []; logs = []
     common = os.environ.copy(); common.update(PYTHONUNBUFFERED="1", DLUMEN_TOKEN=token,
         DLUMEN_MASTER_PORT=str(master_port), DLUMEN_MASTER_URL=base,
-        DLUMEN_DATA_DIR=str(ROOT/"data"/"raw"), DLUMEN_PARTITIONS=str(args.year),
         DLUMEN_HEARTBEAT_TIMEOUT="3", DLUMEN_TASK_TIMEOUT="60",
         DLUMEN_EVENT_LOG=str(run_dir/"events.jsonl"))
     try:
         master_log = (run_dir/"master.log").open("w", encoding="utf-8"); logs.append(master_log)
-        processes.append(subprocess.Popen([sys.executable, "-m", "parallel.master_app"], cwd=ROOT,
+        processes.append(subprocess.Popen([sys.executable, "-m", "master.master_server"], cwd=ROOT,
             env=common, stdout=master_log, stderr=subprocess.STDOUT))
         wait_until(lambda: requests.get(base+"/health", timeout=1).status_code == 200)
         for index in range(args.workers):
-            env = common.copy(); env.update(DLUMEN_WORKER_ID=f"e2e-w{index+1}",
-                DLUMEN_WORKER_PORT=str(free_port()), DLUMEN_PROCESSES=str(args.processes))
+            env = common.copy(); env.update(DLUMEN_WORKER_ID=f"e2e-w{index+1}", DLUMEN_PROCESSES=str(args.processes))
             log = (run_dir/f"worker-{index+1}.log").open("w", encoding="utf-8"); logs.append(log)
-            processes.append(subprocess.Popen([sys.executable, "-m", "parallel.worker_app"], cwd=ROOT,
+            processes.append(subprocess.Popen([sys.executable, "-m", "worker.worker_node"], cwd=ROOT,
                 env=env, stdout=log, stderr=subprocess.STDOUT))
-        wait_until(lambda: len([w for w in requests.get(base+"/api/workers", timeout=2).json() if w["online"]]) == args.workers)
-        response = requests.post(base+"/api/jobs", headers={"X-DLUMEN-Token": token}, timeout=5,
-            json={"operation":"raster_aggregate", "start_year":args.year, "end_year":args.year,
+        wait_until(lambda: len([w for w in requests.get(base+"/metrics", timeout=2).json()["workers"] if w["online"]]) == args.workers)
+        response = requests.post(base+"/jobs", headers={"X-DLUMEN-Token": token}, timeout=5,
+            json={"operation":"aggregate", "start_year":args.year, "end_year":args.year,
                   "months_per_task":1, "worker_count":args.workers, "scheduling":"dynamic"})
         response.raise_for_status(); job_id = response.json()["job_id"]
         status = wait_until(lambda: _completed_status(base, job_id), timeout=120)
@@ -91,7 +89,7 @@ def main() -> int:
 
 
 def _completed_status(base: str, job_id: str):
-    status = requests.get(base+"/api/status", params={"job_id": job_id}, timeout=2).json()
+    status = requests.get(base+"/status", params={"job_id": job_id}, timeout=2).json()
     counts = status["tasks"]
     return status if sum(counts.values()) and counts["completed"]+counts["failed"] == sum(counts.values()) else None
 
