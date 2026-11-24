@@ -119,7 +119,7 @@ def main() -> None:
     log_file = os.path.abspath(os.path.join("logs", f"worker-{WORKER_ID}.log"))
     print_banner(log_file)
     session = requests.Session(); session.headers.update(HEADERS)
-    registered = False; waiting_logged_at = 0.0; task = None
+    registered = False; waiting_announced = False; task = None
     stop_heartbeat = threading.Event()
 
     def heartbeat_loop() -> None:
@@ -151,9 +151,9 @@ def main() -> None:
                     logger.info("WORKER ONLINE: %s berhasil terdaftar", WORKER_ID)
                 response = session.get(f"{MASTER_URL}/get-task/{WORKER_ID}", timeout=20)
                 if response.status_code == 204:
-                    if time.monotonic() - waiting_logged_at >= 10:
+                    if not waiting_announced:
                         logger.info("Menunggu task dari Master ...")
-                        waiting_logged_at = time.monotonic()
+                        waiting_announced = True
                     time.sleep(1); continue
                 response.raise_for_status(); task = response.json()["task"]
                 logger.info("TASK DITERIMA: %s | partisi=%s | operasi=%s",
