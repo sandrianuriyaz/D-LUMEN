@@ -185,7 +185,8 @@ class WorkerRegistry:
         return newly_offline
 
     def snapshot(self) -> list[dict[str, Any]]:
-        self.refresh()
+        # Offline transitions are owned by the master's monitor so requeue is
+        # never consumed accidentally by a read-only status request.
         with self.lock:
             return [dict(w) for w in self.workers.values()]
 

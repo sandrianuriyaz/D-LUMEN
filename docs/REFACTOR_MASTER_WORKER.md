@@ -20,10 +20,12 @@ mengambil record terkait dari `dlumen_db`, lalu mengirim payload JSON melalui
 `GET /get-task/{worker_id}`. Worker tidak memiliki driver PostgreSQL dan hanya memakai
 `requests`, `numpy`, serta `psutil`. Hasil dikirim ke `POST /submit-result`.
 
-Task yang tidak selesai dalam 15 detik kembali ke antrean. Worker lain mengambil task itu
-secara otomatis; durasi dari requeue sampai hasil diterima dicatat sebagai recovery time.
+Heartbeat berjalan pada thread terpisah selama multiprocessing. Worker yang hilang selama 15 detik
+membuat task aktif kembali ke antrean; batas runtime task adalah 300 detik. Worker lain mengambil
+task itu secara otomatis dan durasi dari requeue sampai hasil diterima dicatat sebagai recovery time.
 Endpoint pengujian utama: `POST /reset`, `GET /metrics`, `GET /status`, dan `POST /jobs`.
 
-Operasi yang tersedia adalah `aggregate` (AVG/MAX/SUM berbobot piksel), `extreme`
+Master mengirim grid 64×64 yang berasal dari 9.679 baris PostgreSQL, dengan fallback ke tabel
+bulanan bila grid belum diimpor. Operasi yang tersedia adalah `aggregate` (AVG/MAX/SUM berbobot piksel), `extreme`
 (ambang radiance), dan `growth` (pertumbuhan rata-rata tahunan). Dekomposisi default per bulan;
 `months_per_task` dapat diperbesar untuk partisi temporal yang lebih kasar.

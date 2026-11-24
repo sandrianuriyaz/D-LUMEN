@@ -26,6 +26,7 @@ repository = ViirsRepository()
 jobs: dict[str, dict[str, Any]] = {}
 metrics_state = {"started_at": time.time(), "assignments": 0, "completed": 0,
                  "requeued": 0, "worker_samples": []}
+failure_injections: set[str] = set()
 
 
 def configure_logging() -> logging.Logger:
@@ -99,7 +100,11 @@ def heartbeat():
         return jsonify(status="register_required"), 404
     metrics_state["worker_samples"].append({"at": time.time(), "worker_id": worker_id, **sample})
     metrics_state["worker_samples"] = metrics_state["worker_samples"][-10000:]
-    return jsonify(status="ok")
+    command = None
+    if worker_id in failure_injections:
+        failure_injections.discard(worker_id); command = "terminate"
+        logger.warning("FAULT INJECTION dikirim ke Worker %s", worker_id)
+    return jsonify(status="ok", command=command)
 
 
 @app.post("/jobs")
@@ -194,10 +199,34 @@ def _status(job_id: str | None = None) -> dict[str, Any]:
     counts = store.counts(job_id)
     results = store.job_results(job_id) if job_id else list(store.results.values())
     total = sum(counts.values())
-    return {"job": jobs.get(job_id), "tasks": counts,
+    details = [task.public() for task in store.tasks.values()
+               if job_id is None or task.job_id == job_id]
+    assignments: dict[str, int] = {}
+    for task in details:
+        if task.get("assigned_worker"):
+            assignments[task["assigned_worker"]] = assignments.get(task["assigned_worker"], 0) + 1
+    finished = [task["finished_at"] for task in details if task.get("finished_at")]
+    job = jobs.get(job_id)
+    execution = (max(finished) - job["created_at"] if job and len(finished) == len(details) and details else None)
+    return {"job": job, "tasks": counts, "task_details": details,
+            "task_distribution": assignments, "execution_time_seconds": execution,
             "progress": counts["completed"] / total * 100 if total else 0,
             "aggregate": aggregate_results(results), "results": results,
             "recovery": store.recovery_events(job_id), "workers": registry.snapshot()}
+
+
+@app.post("/fault/inject/<worker_id>")
+@protected
+def inject_fault(worker_id: str):
+    worker = registry.workers.get(worker_id)
+    if not worker or not worker.get("online"):
+        return jsonify(error="Worker tidak online"), 404
+    running = [task.task_id for task in store.tasks.values()
+               if task.status.value == "running" and task.assigned_worker == worker_id]
+    if not running:
+        return jsonify(error="Worker tidak sedang mengerjakan task"), 409
+    failure_injections.add(worker_id)
+    return jsonify(status="scheduled", worker_id=worker_id, running_tasks=running), 202
 
 
 @app.get("/status")
@@ -226,6 +255,7 @@ def reset():
     with store.lock:
         store.tasks.clear(); store.results.clear()
     jobs.clear()
+    failure_injections.clear()
     metrics_state.update(started_at=time.time(), assignments=0, completed=0, requeued=0,
                          worker_samples=[])
     logger.info("RESET: antrean task dan metrik dikosongkan; registry Worker dipertahankan")

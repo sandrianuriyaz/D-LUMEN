@@ -50,23 +50,38 @@ def connection():
 
 
 class ViirsRepository:
-    """Reads small, JSON-safe task payloads from the central database."""
+    """Reads JSON-safe monthly or spatial-grid payloads from PostgreSQL."""
 
     COLUMNS = ("year", "month", "valid_pixels", "mean_radiance", "min_radiance",
                "max_radiance", "sum_radiance")
+    GRID_COLUMNS = ("year", "month", "row_off", "col_off", "valid_pixels",
+                    "mean_radiance", "min_radiance", "max_radiance", "sum_radiance")
 
     def payload(self, params: dict[str, Any]) -> dict[str, Any]:
         start = int(params["start_year"]) * 100 + int(params["start_month"])
         end = int(params["end_year"]) * 100 + int(params["end_month"])
+        mode = params.get("payload_mode", "grid")
         with connection() as conn, conn.cursor() as cursor:
-            cursor.execute(
-                """SELECT year, month, valid_pixels, mean_radiance, min_radiance,
-                          max_radiance, sum_radiance
-                   FROM viirs_monthly
-                   WHERE (year * 100 + month) BETWEEN %s AND %s
-                   ORDER BY year, month""", (start, end))
-            rows = [dict(zip(self.COLUMNS, row)) for row in cursor.fetchall()]
-        return {"records": [{k: self._json(v) for k, v in row.items()} for row in rows]}
+            rows = []
+            if mode == "grid":
+                cursor.execute(
+                    """SELECT year, month, row_off, col_off, valid_pixels,
+                              mean_radiance, min_radiance, max_radiance, sum_radiance
+                       FROM viirs_grid_chunks
+                       WHERE (year * 100 + month) BETWEEN %s AND %s
+                       ORDER BY year, month, row_off, col_off""", (start, end))
+                rows = [dict(zip(self.GRID_COLUMNS, row)) for row in cursor.fetchall()]
+            if not rows:
+                mode = "monthly"
+                cursor.execute(
+                    """SELECT year, month, valid_pixels, mean_radiance, min_radiance,
+                              max_radiance, sum_radiance
+                       FROM viirs_monthly
+                       WHERE (year * 100 + month) BETWEEN %s AND %s
+                       ORDER BY year, month""", (start, end))
+                rows = [dict(zip(self.COLUMNS, row)) for row in cursor.fetchall()]
+        return {"mode": mode,
+                "records": [{k: self._json(v) for k, v in row.items()} for row in rows]}
 
     @staticmethod
     def _json(value: Any) -> Any:

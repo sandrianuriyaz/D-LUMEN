@@ -2,7 +2,7 @@
 
 ## BAB I — Pendahuluan
 
-D-LUMEN memproses ringkasan VIIRS Nighttime Lights 2020–2025 secara terdistribusi. Tujuannya menguji dekomposisi data temporal, multiprocessing, penjadwalan dinamis, dan pemulihan kegagalan tanpa menghitung replika dua kali.
+D-LUMEN memproses data VIIRS Nighttime Lights 2024–2025 secara terdistribusi. GeoTIFF dibagi menjadi grid 64×64 dan dimuat ke PostgreSQL Master, lalu payload grid diproses Worker tanpa koneksi database langsung.
 
 ## BAB II — Studi Pustaka
 
@@ -12,13 +12,13 @@ Rujukan resmi awal: [NASA Earthdata/CMR VIIRS Nighttime Lights](https://cmr.eart
 
 ## BAB III — Metodologi
 
-Master mengumumkan `DLUMEN_MASTER_V2|port` via UDP 5005. Worker mendaftar melalui alamat sumber aktual, mengirim heartbeat dan metrik, kemudian menarik task. Dynamic scheduling memakai pull queue sehingga worker cepat menarik lebih banyak task; static scheduling memasang satu eligible worker per task secara round-robin. Task memiliki UUID, partition ID, parameter, status, attempt, dan worker. Result diterima tepat sekali per task ID.
+Worker mendaftar ke URL Master, mengirim heartbeat dan metrik pada thread terpisah, kemudian menarik task melalui HTTP. Dynamic scheduling memakai pull queue sehingga Worker cepat menarik lebih banyak task; static scheduling memasang satu Worker per task secara round-robin. Task memiliki UUID, partition ID, parameter, status, attempt, dan Worker. Result diterima tepat sekali per task ID.
 
 Partisi default adalah bulan, dapat digabung dengan `months_per_task`. Metadata `replicas` membatasi task hanya ke worker yang punya partisi. Jika tidak ada replika tersedia, task tetap pending—tidak diklaim pulih. Replikasi harus disiapkan sebelum eksperimen (salinan tabel/GeoTIFF atau storage bersama), lalu daftar partisi worker di `DLUMEN_PARTITIONS`.
 
 Pengukuran wajib memakai workload identik dan memisahkan persiapan data dari query. Catat CPU/RAM dari psutil, waktu dinding, throughput, recovery time dari worker offline sampai task selesai ulang, serta `p`: jumlah proses untuk local parallel atau jumlah worker fisik aktif untuk distributed.
 
-Workload utama yang disarankan adalah `raster_aggregate`: setiap task membaca piksel dan coverage GeoTIFF nyata secara block/window, menyaring piksel valid, lalu menghitung count, sum, min, max, dan histogram. Nilai count/sum divalidasi terhadap preprocessing. Tabel 72 bulan tetap dipakai untuk distributed database search/analysis, sedangkan raster menghindari benchmark yang terlalu ringan.
+Workload utama memakai 9.679 grid PostgreSQL hasil 24 GeoTIFF. Setiap task membawa ratusan record grid dan Worker membaginya ke seluruh core lokal. Kernel numerik deterministik dengan `work_factor` menjaga hasil ilmiah count/sum/min/max tetap sama sambil menyediakan beban CPU terkontrol untuk perbandingan yang adil.
 
 ## BAB IV — Hasil dan Pembahasan (isi hanya dari eksperimen nyata)
 
@@ -35,8 +35,8 @@ Isi setelah benchmark 10 node. Bedakan bukti unit/integration mock dengan eksper
 ## Checklist eksperimen 10 node
 
 - [ ] 1 master + 9 komputer worker fisik tercatat dengan hostname/IP berbeda
-- [ ] firewall membuka TCP 5000/5002 dan UDP 5005; AP isolation/VLAN diperiksa
-- [ ] partisi dan replika diverifikasi, total 72 bulan tanpa duplikat
+- [ ] firewall membuka TCP 5050; AP isolation/VLAN diperiksa
+- [ ] grid PostgreSQL diverifikasi, total 24 bulan/9.679 chunk tanpa duplikat
 - [ ] sequential dan local multiprocessing dijalankan
 - [ ] distributed 1/2/4/6/9 worker dengan workload identik
 - [ ] static versus dynamic, minimal 3 pengulangan

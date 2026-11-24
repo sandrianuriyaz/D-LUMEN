@@ -41,6 +41,7 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--processes", type=int, default=2)
     parser.add_argument("--year", type=int, default=2024)
+    parser.add_argument("--fault", action="store_true", help="kill one busy Worker and verify recovery")
     args = parser.parse_args()
     if not 1 <= args.workers <= 9:
         raise SystemExit("--workers harus 1..9")
@@ -63,8 +64,15 @@ def main() -> int:
         wait_until(lambda: len([w for w in requests.get(base+"/metrics", timeout=2).json()["workers"] if w["online"]]) == args.workers)
         response = requests.post(base+"/jobs", headers={"X-DLUMEN-Token": token}, timeout=5,
             json={"operation":"aggregate", "start_year":args.year, "end_year":args.year,
-                  "months_per_task":1, "worker_count":args.workers, "scheduling":"dynamic"})
+                  "months_per_task":1, "worker_count":args.workers, "scheduling":"dynamic",
+                  "params": {"payload_mode": "grid", "work_factor": 100,
+                             "minimum_chunk_seconds": 3 if args.fault else 0}})
         response.raise_for_status(); job_id = response.json()["job_id"]
+        if args.fault:
+            running = wait_until(lambda: _running_worker(base, job_id), timeout=20)
+            injected = requests.post(base+f"/fault/inject/{running}",
+                headers={"X-DLUMEN-Token": token}, timeout=5)
+            injected.raise_for_status()
         status = wait_until(lambda: _completed_status(base, job_id), timeout=120)
         expected = json.loads((ROOT/"data"/"processed"/"viirs_summary.json").read_text())
         expected = [r for r in expected if r["year"] == args.year]
@@ -72,6 +80,9 @@ def main() -> int:
         assert aggregate["months"] == len(expected), (aggregate, len(expected))
         assert aggregate["valid_pixels"] == sum(r["valid_pixels"] for r in expected)
         assert status["tasks"]["failed"] == 0
+        if args.fault:
+            assert status["recovery"], status
+            assert any(event["recovery_seconds"] is not None for event in status["recovery"]), status["recovery"]
         print(f"E2E OK: {args.workers} workers, {aggregate['months']} months, "
               f"{aggregate['valid_pixels']} pixels; evidence={run_dir}")
         return 0
@@ -92,6 +103,12 @@ def _completed_status(base: str, job_id: str):
     status = requests.get(base+"/status", params={"job_id": job_id}, timeout=2).json()
     counts = status["tasks"]
     return status if sum(counts.values()) and counts["completed"]+counts["failed"] == sum(counts.values()) else None
+
+
+def _running_worker(base: str, job_id: str):
+    status = requests.get(base+"/status", params={"job_id": job_id}, timeout=2).json()
+    running = [task for task in status.get("task_details", []) if task["status"] == "running"]
+    return running[0]["assigned_worker"] if running else None
 
 
 if __name__ == "__main__":

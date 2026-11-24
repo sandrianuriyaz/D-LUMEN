@@ -13,10 +13,14 @@ Gunakan workload, periode data, granularitas, dan hasil ilmiah yang sama. Persia
 
 Metrik: execution time, `speedup=T1/Tp`, `efficiency=speedup/p`, throughput bulan/detik, CPU/RAM, recovery time, retries, failed tasks, dan pembagian task per Worker. Untuk local parallel, `p` adalah proses; untuk distributed, `p` adalah Worker fisik aktif. Jangan mencampur kedua definisi pada satu grafik efficiency.
 
-Perintah distributed:
+Perintah benchmark final (grid PostgreSQL, tiga pengulangan, E1-E6):
 
 ```bash
-python -m benchmark.distributed_benchmark --operation raster_aggregate \
-  --workers 1,2,4,6,9 --scheduling static,dynamic --repetitions 3 \
-  --baseline-seconds NILAI_E1 --output benchmark/distributed
+python -m benchmark.run_experiments --start-year 2024 --end-year 2025 \
+  --local-processes 2,4,8 --scalability 1,2,4,6,9 --repetitions 3 \
+  --work-factor 100000 --output benchmark/results/uas
 ```
+
+E5 dijalankan terakhir. Runner mengirim fault injection terautentikasi melalui Master kepada
+satu Worker yang sedang `RUNNING`; proses Worker benar-benar berhenti, heartbeat timeout memicu
+requeue, dan Worker lain menyelesaikan task. Jalankan kembali Worker yang dihentikan sesudah benchmark.

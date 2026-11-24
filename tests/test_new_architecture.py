@@ -11,6 +11,7 @@ class NewArchitectureTests(unittest.TestCase):
     def setUp(self):
         master_server.store.tasks.clear(); master_server.store.results.clear()
         master_server.registry.workers.clear(); master_server.jobs.clear()
+        master_server.failure_injections.clear()
         master_server.repository.payload = lambda params: {"records": ROWS}
         self.client = master_server.app.test_client()
         self.headers = ({"X-DLUMEN-Token": master_server.TOKEN} if master_server.TOKEN else {})
@@ -37,6 +38,29 @@ class NewArchitectureTests(unittest.TestCase):
         combined = merge_results([part], "extreme")
         self.assertEqual(5.0, combined["global_mean"])
         self.assertEqual(1, len(combined["extreme_records"]))
+
+    def test_grid_records_count_unique_months(self):
+        rows = [dict(ROWS[0], row_off=0), dict(ROWS[0], row_off=64)]
+        parts = [compute_chunk("aggregate", [row], {"work_factor": 2}) for row in rows]
+        combined = merge_results(parts, "aggregate")
+        self.assertEqual(1, combined["months"])
+        self.assertEqual(4, combined["valid_pixels"])
+
+    def test_fault_injection_requires_running_task(self):
+        self.client.post("/register", headers=self.headers, json={"worker_id": "w1", "processes": 2})
+        response = self.client.post("/fault/inject/w1", headers=self.headers)
+        self.assertEqual(409, response.status_code)
+
+    def test_fault_injection_delivered_by_heartbeat(self):
+        self.client.post("/register", headers=self.headers, json={"worker_id": "w1", "processes": 2})
+        self.client.post("/jobs", headers=self.headers, json={"start_year": 2024,
+            "end_year": 2024, "months_per_task": 12, "worker_count": 1})
+        self.client.get("/get-task/w1", headers=self.headers)
+        injected = self.client.post("/fault/inject/w1", headers=self.headers)
+        self.assertEqual(202, injected.status_code)
+        heartbeat = self.client.post("/heartbeat", headers=self.headers,
+            json={"worker_id": "w1", "metrics": {}})
+        self.assertEqual("terminate", heartbeat.json["command"])
 
 
 if __name__ == "__main__": unittest.main()

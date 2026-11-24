@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
@@ -47,15 +48,24 @@ def print_banner(log_file: str) -> None:
 
 
 def compute_chunk(operation: str, records: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any]:
+    chunk_started = time.perf_counter()
     if not records:
         return {"months": 0, "valid_pixels": 0, "sum_radiance": 0.0,
                 "min_radiance": None, "max_radiance": None}
     pixels = np.asarray([row["valid_pixels"] for row in records], dtype=np.int64)
     totals = np.asarray([row["sum_radiance"] for row in records], dtype=np.float64)
     means = np.asarray([row["mean_radiance"] for row in records], dtype=np.float64)
-    result: dict[str, Any] = {"months": len(records), "valid_pixels": int(pixels.sum()),
+    periods = sorted({f'{int(row["year"]):04d}-{int(row["month"]):02d}' for row in records})
+    # Repeat a deterministic numerical kernel to create a controlled, comparable
+    # CPU workload without changing the scientific aggregate.
+    checksum = 0.0
+    for index in range(max(1, int(params.get("work_factor", 1)))):
+        scale = 1.0 + (index % 97) * 1e-6
+        checksum += float(np.sin(means * scale).sum() + np.sqrt(np.abs(means) + scale).sum())
+    result: dict[str, Any] = {"months": len(periods), "periods": periods,
+        "valid_pixels": int(pixels.sum()),
         "sum_radiance": float(totals.sum()), "min_radiance": float(min(r["min_radiance"] for r in records)),
-        "max_radiance": float(max(r["max_radiance"] for r in records))}
+        "max_radiance": float(max(r["max_radiance"] for r in records)), "work_checksum": checksum}
     if operation == "extreme":
         threshold = float(params.get("threshold", 50.0))
         result["extreme_records"] = [row for row, mean in zip(records, means) if mean >= threshold]
@@ -69,6 +79,10 @@ def compute_chunk(operation: str, records: list[dict[str, Any]], params: dict[st
         result["growth_percent"] = ({str(year): (averages[year] - averages[years[i-1]]) /
             averages[years[i-1]] * 100 if averages[years[i-1]] else None
             for i, year in enumerate(years) if i} if len(years) > 1 else {})
+    minimum = float(params.get("minimum_chunk_seconds", 0))
+    remaining = minimum - (time.perf_counter() - chunk_started)
+    if remaining > 0:
+        time.sleep(remaining)
     return result
 
 
@@ -80,9 +94,12 @@ def merge_results(parts: list[dict[str, Any]], operation: str) -> dict[str, Any]
     pixels = sum(x["valid_pixels"] for x in parts); total = sum(x["sum_radiance"] for x in parts)
     lows = [x["min_radiance"] for x in parts if x["min_radiance"] is not None]
     highs = [x["max_radiance"] for x in parts if x["max_radiance"] is not None]
-    result = {"months": sum(x["months"] for x in parts), "valid_pixels": pixels,
+    periods = sorted({period for part in parts for period in part.get("periods", [])})
+    result = {"months": len(periods) if periods else sum(x["months"] for x in parts),
+              "periods": periods, "valid_pixels": pixels,
               "sum_radiance": total, "global_mean": total / pixels if pixels else None,
-              "min_radiance": min(lows) if lows else None, "max_radiance": max(highs) if highs else None}
+              "min_radiance": min(lows) if lows else None, "max_radiance": max(highs) if highs else None,
+              "work_checksum": sum(x.get("work_checksum", 0.0) for x in parts)}
     if operation == "extreme": result["extreme_records"] = sum((x.get("extreme_records", []) for x in parts), [])
     if operation == "growth":
         annual = {}; [annual.update(x.get("annual_mean", {})) for x in parts]
@@ -103,6 +120,25 @@ def main() -> None:
     print_banner(log_file)
     session = requests.Session(); session.headers.update(HEADERS)
     registered = False; waiting_logged_at = 0.0; task = None
+    stop_heartbeat = threading.Event()
+
+    def heartbeat_loop() -> None:
+        heartbeat_session = requests.Session(); heartbeat_session.headers.update(HEADERS)
+        while not stop_heartbeat.wait(1):
+            if not registered:
+                continue
+            try:
+                response = heartbeat_session.post(MASTER_URL + "/heartbeat", json={"worker_id": WORKER_ID,
+                    "metrics": metrics()}, timeout=5)
+                response.raise_for_status()
+                if response.json().get("command") == "terminate":
+                    logger.error("FAULT INJECTION diterima; Worker dihentikan sekarang")
+                    os._exit(73)
+            except requests.RequestException as exc:
+                logger.warning("Heartbeat gagal: %s", exc)
+
+    heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+    heartbeat_thread.start()
     with ProcessPoolExecutor(max_workers=PROCESSES) as pool:
         while True:
             try:
@@ -113,8 +149,6 @@ def main() -> None:
                         "platform": os.name}, timeout=10)
                     response.raise_for_status(); registered = True
                     logger.info("WORKER ONLINE: %s berhasil terdaftar", WORKER_ID)
-                session.post(MASTER_URL + "/heartbeat", json={"worker_id": WORKER_ID,
-                    "metrics": metrics()}, timeout=10).raise_for_status()
                 response = session.get(f"{MASTER_URL}/get-task/{WORKER_ID}", timeout=20)
                 if response.status_code == 204:
                     if time.monotonic() - waiting_logged_at >= 10:
@@ -137,6 +171,7 @@ def main() -> None:
                 task = None
             except KeyboardInterrupt:
                 logger.info("Worker %s dihentikan oleh pengguna", WORKER_ID)
+                stop_heartbeat.set()
                 break
             except requests.RequestException as exc:
                 registered = False

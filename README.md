@@ -16,8 +16,12 @@ pip install -r requirements-master.txt
 python -m preprocessing.viirs_processor
 python -m database.init_db
 python -m database.import_viirs
+python -m database.validate_grid
 python -m master.master_server
 ```
+
+Importer membentuk tabel grid 64×64 di PostgreSQL agar payload benchmark cukup besar untuk
+multiprocessing. Jalankan kembali importer setelah menambah GeoTIFF; operasi ini idempotent.
 
 Salin `.env.example` menjadi `.env`, isi kredensial PostgreSQL dan token. Master mendengarkan
 `0.0.0.0:5050`; PostgreSQL tidak perlu dan tidak boleh diekspos kepada Worker.
@@ -53,6 +57,11 @@ Operasi: `aggregate`, `extreme` (parameter `threshold`), dan `growth`. Schedulin
 python -m benchmark.run_experiments --start-year 2020 --end-year 2025 \
   --scalability 1,2,4,6,9 --output benchmark/results/uas
 ```
+
+Untuk dataset workspace saat ini gunakan `--start-year 2024 --end-year 2025`. Runner menjalankan
+E1–E6 sebanyak tiga pengulangan, membuat fault injection sebagai skenario terakhir, dan menghasilkan
+`*_raw.csv/json`, `*_summary.csv/json`, `*_charts.png`, serta `*_analysis.md`. Worker yang sengaja
+dimatikan pada E5 harus dijalankan kembali setelah benchmark selesai.
 
 Skenario fault tolerance memerlukan `--fault-command` yang menghentikan tepat satu Worker.
 CSV dan JSON memuat execution time, speedup, efficiency, throughput, CPU/RAM, dan recovery time.
