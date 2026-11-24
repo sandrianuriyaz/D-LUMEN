@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import logging
 import threading
 import time
 import uuid
@@ -27,6 +28,35 @@ metrics_state = {"started_at": time.time(), "assignments": 0, "completed": 0,
                  "requeued": 0, "worker_samples": []}
 
 
+def configure_logging() -> logging.Logger:
+    log_dir = os.path.join(os.getcwd(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    logger = logging.getLogger("dlumen.master")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
+    console = logging.StreamHandler(); console.setFormatter(formatter)
+    file_handler = logging.FileHandler(os.path.join(log_dir, "master.log"), encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(console); logger.addHandler(file_handler)
+    return logger
+
+
+logger = configure_logging()
+
+
+def print_banner() -> None:
+    print("=" * 66, flush=True)
+    print(" D-LUMEN — CENTRAL MASTER", flush=True)
+    print(" PostgreSQL terpusat + REST dynamic work-pulling", flush=True)
+    print(f" Port      : {PORT}", flush=True)
+    print(f" Worker    : 0/9 online", flush=True)
+    print(f" Metrics   : http://127.0.0.1:{PORT}/metrics", flush=True)
+    print(f" Log       : {os.path.abspath(os.path.join('logs', 'master.log'))}", flush=True)
+    print(" Tekan Ctrl+C untuk berhenti.", flush=True)
+    print("=" * 66, flush=True)
+
+
 def protected(function):
     @wraps(function)
     def wrapper(*args, **kwargs):
@@ -49,7 +79,12 @@ def register():
     worker_id = str(data.get("worker_id", "")).strip()
     if not worker_id:
         return jsonify(error="worker_id wajib diisi"), 400
+    was_known = worker_id in registry.workers and registry.workers[worker_id].get("online", False)
     registry.register(worker_id, request.remote_addr or "unknown", data)
+    online = sum(worker["online"] for worker in registry.snapshot())
+    logger.info("WORKER %s: %s | IP=%s | proses=%s | online=%s/9",
+                "TERDAFTAR ULANG" if was_known else "ONLINE", worker_id,
+                request.remote_addr or "unknown", data.get("processes", "?"), online)
     return jsonify(status="registered", task_timeout_seconds=TASK_TIMEOUT)
 
 
@@ -99,6 +134,8 @@ def create_job():
     jobs[job_id] = {"job_id": job_id, "operation": operation, "created_at": time.time(),
                     "task_count": len(tasks), "start_year": start_year, "end_year": end_year,
                     "scheduling": scheduling, "worker_ids": selected}
+    logger.info("JOB DIBUAT: %s | operasi=%s | task=%s | worker=%s | mode=%s",
+                job_id[:8], operation, len(tasks), ",".join(selected), scheduling)
     return jsonify(job_id=job_id, count=len(tasks), worker_ids=selected,
                    task_ids=[task.task_id for task in tasks]), 201
 
@@ -134,6 +171,11 @@ def submit_result():
         sample = data.get("metrics", {})
         metrics_state["worker_samples"].append({"at": time.time(),
             "worker_id": data.get("worker_id"), **sample})
+        task = store.tasks[str(data.get("task_id"))]
+        counts = store.counts(task.job_id); total = sum(counts.values())
+        logger.info("TASK SELESAI: %s | worker=%s | progres=%s/%s (%.1f%%)",
+                    task.task_id[:8], data.get("worker_id"), counts["completed"], total,
+                    counts["completed"] / total * 100 if total else 0)
     return jsonify(accepted=accepted), 200 if accepted else 409
 
 
@@ -186,6 +228,7 @@ def reset():
     jobs.clear()
     metrics_state.update(started_at=time.time(), assignments=0, completed=0, requeued=0,
                          worker_samples=[])
+    logger.info("RESET: antrean task dan metrik dikosongkan; registry Worker dipertahankan")
     return jsonify(status="reset", workers_preserved=len(registry.workers))
 
 
@@ -193,11 +236,19 @@ def monitor(stop: threading.Event | None = None) -> None:
     stop = stop or threading.Event()
     while not stop.wait(1):
         for worker_id in registry.refresh():
-            metrics_state["requeued"] += len(store.recover_worker(worker_id))
-        metrics_state["requeued"] += len(store.expire(TASK_TIMEOUT))
+            recovered = store.recover_worker(worker_id)
+            metrics_state["requeued"] += len(recovered)
+            online = sum(worker["online"] for worker in registry.snapshot())
+            logger.warning("WORKER OFFLINE: %s | online=%s/9 | task dikembalikan=%s",
+                           worker_id, online, len(recovered))
+        expired = store.expire(TASK_TIMEOUT)
+        metrics_state["requeued"] += len(expired)
+        if expired:
+            logger.warning("TIMEOUT: %s task dikembalikan ke antrean", len(expired))
 
 
 def main() -> None:
+    print_banner()
     threading.Thread(target=monitor, daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, threaded=True)
 
