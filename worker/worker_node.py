@@ -1,6 +1,7 @@
 """Portable worker requiring only requests, numpy and psutil."""
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import time
@@ -17,6 +18,32 @@ WORKER_ID = os.getenv("DLUMEN_WORKER_ID", f"{socket.gethostname()}-{uuid.getnode
 PROCESSES = max(1, int(os.getenv("DLUMEN_PROCESSES") or (os.cpu_count() or 1)))
 TOKEN = os.getenv("DLUMEN_TOKEN", "")
 HEADERS = {"X-DLUMEN-Token": TOKEN} if TOKEN else {}
+
+
+def configure_logging() -> logging.Logger:
+    log_dir = os.path.join(os.getcwd(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    logger = logging.getLogger("dlumen.worker")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S")
+    console = logging.StreamHandler(); console.setFormatter(formatter)
+    file_handler = logging.FileHandler(os.path.join(log_dir, f"worker-{WORKER_ID}.log"), encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(console); logger.addHandler(file_handler)
+    return logger
+
+
+def print_banner(log_file: str) -> None:
+    print("=" * 62, flush=True)
+    print(" D-LUMEN — Distributed Light Pollution Monitoring", flush=True)
+    print(" Worker tanpa PostgreSQL (HTTP/REST + multiprocessing)", flush=True)
+    print(f" Worker ID : {WORKER_ID}", flush=True)
+    print(f" Master    : {MASTER_URL}", flush=True)
+    print(f" Proses    : {PROCESSES} core", flush=True)
+    print(f" Log       : {log_file}", flush=True)
+    print(" Tekan Ctrl+C untuk berhenti.", flush=True)
+    print("=" * 62, flush=True)
 
 
 def compute_chunk(operation: str, records: list[dict[str, Any]], params: dict[str, Any]) -> dict[str, Any]:
@@ -71,18 +98,32 @@ def metrics() -> dict[str, float]:
 
 
 def main() -> None:
+    logger = configure_logging()
+    log_file = os.path.abspath(os.path.join("logs", f"worker-{WORKER_ID}.log"))
+    print_banner(log_file)
     session = requests.Session(); session.headers.update(HEADERS)
-    session.post(MASTER_URL + "/register", json={"worker_id": WORKER_ID,
-        "hostname": socket.gethostname(), "processes": PROCESSES, "platform": os.name}, timeout=10).raise_for_status()
+    registered = False; waiting_logged_at = 0.0; task = None
     with ProcessPoolExecutor(max_workers=PROCESSES) as pool:
         while True:
             try:
+                if not registered:
+                    logger.info("Menghubungkan ke Master %s ...", MASTER_URL)
+                    response = session.post(MASTER_URL + "/register", json={"worker_id": WORKER_ID,
+                        "hostname": socket.gethostname(), "processes": PROCESSES,
+                        "platform": os.name}, timeout=10)
+                    response.raise_for_status(); registered = True
+                    logger.info("WORKER ONLINE: %s berhasil terdaftar", WORKER_ID)
                 session.post(MASTER_URL + "/heartbeat", json={"worker_id": WORKER_ID,
                     "metrics": metrics()}, timeout=10).raise_for_status()
                 response = session.get(f"{MASTER_URL}/get-task/{WORKER_ID}", timeout=20)
                 if response.status_code == 204:
+                    if time.monotonic() - waiting_logged_at >= 10:
+                        logger.info("Menunggu task dari Master ...")
+                        waiting_logged_at = time.monotonic()
                     time.sleep(1); continue
                 response.raise_for_status(); task = response.json()["task"]
+                logger.info("TASK DITERIMA: %s | partisi=%s | operasi=%s",
+                            task["task_id"][:8], task["partition_id"], task["operation"])
                 started = time.perf_counter(); records = task["payload"]["records"]
                 futures = [pool.submit(compute_chunk, task["operation"], chunk, task["params"])
                            for chunk in split_records(records, PROCESSES)]
@@ -90,13 +131,24 @@ def main() -> None:
                 sample = metrics(); sample["execution_seconds"] = time.perf_counter() - started
                 session.post(MASTER_URL + "/submit-result", json={"worker_id": WORKER_ID,
                     "task_id": task["task_id"], "result": result, "metrics": sample}, timeout=20).raise_for_status()
+                logger.info("TASK SELESAI: %s | %.3f detik | %s record | CPU %.1f%% | RAM %.1f%%",
+                            task["task_id"][:8], sample["execution_seconds"], len(records),
+                            sample["cpu_percent"], sample["memory_percent"])
+                task = None
             except KeyboardInterrupt:
+                logger.info("Worker %s dihentikan oleh pengguna", WORKER_ID)
                 break
+            except requests.RequestException as exc:
+                registered = False
+                logger.warning("Koneksi Master gagal: %s. Mencoba lagi dalam 3 detik ...", exc)
+                time.sleep(3)
             except Exception as exc:
-                if "task" in locals():
+                logger.exception("TASK GAGAL: %s", exc)
+                if task:
                     try: session.post(MASTER_URL + "/task-failed", json={"worker_id": WORKER_ID,
                         "task_id": task["task_id"], "error": f"{type(exc).__name__}: {exc}"}, timeout=5)
                     except requests.RequestException: pass
+                    task = None
                 time.sleep(2)
 
 
