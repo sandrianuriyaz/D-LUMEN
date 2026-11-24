@@ -8,7 +8,14 @@ import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from typing import Any
+
+# Prevent every subprocess from spawning another full BLAS thread pool.
+os.environ["OPENBLAS_NUM_THREADS"] = os.getenv("DLUMEN_BLAS_THREADS", "1")
+os.environ["OMP_NUM_THREADS"] = os.getenv("DLUMEN_BLAS_THREADS", "1")
+os.environ["MKL_NUM_THREADS"] = os.getenv("DLUMEN_BLAS_THREADS", "1")
+os.environ["NUMEXPR_NUM_THREADS"] = os.getenv("DLUMEN_BLAS_THREADS", "1")
 
 import numpy as np
 import psutil
@@ -16,7 +23,11 @@ import requests
 
 MASTER_URL = os.getenv("DLUMEN_MASTER_URL", "http://127.0.0.1:5050").rstrip("/")
 WORKER_ID = os.getenv("DLUMEN_WORKER_ID", f"{socket.gethostname()}-{uuid.getnode():x}")
-PROCESSES = max(1, int(os.getenv("DLUMEN_PROCESSES") or (os.cpu_count() or 1)))
+CPU_COUNT = os.cpu_count() or 1
+REQUESTED_PROCESSES = max(1, int(os.getenv("DLUMEN_PROCESSES") or CPU_COUNT))
+MEMORY_SAFE_PROCESSES = max(1, int(psutil.virtual_memory().available // (384 * 1024 * 1024)))
+MAX_PROCESSES = max(1, int(os.getenv("DLUMEN_MAX_PROCESSES", "8")))
+PROCESSES = min(REQUESTED_PROCESSES, CPU_COUNT, MEMORY_SAFE_PROCESSES, MAX_PROCESSES)
 TOKEN = os.getenv("DLUMEN_TOKEN", "")
 HEADERS = {"X-DLUMEN-Token": TOKEN} if TOKEN else {}
 
@@ -42,6 +53,8 @@ def print_banner(log_file: str) -> None:
     print(f" Worker ID : {WORKER_ID}", flush=True)
     print(f" Master    : {MASTER_URL}", flush=True)
     print(f" Proses    : {PROCESSES} core", flush=True)
+    if PROCESSES < REQUESTED_PROCESSES:
+        print(f" Catatan   : dibatasi dari {REQUESTED_PROCESSES} proses untuk menjaga RAM", flush=True)
     print(f" Log       : {log_file}", flush=True)
     print(" Tekan Ctrl+C untuk berhenti.", flush=True)
     print("=" * 62, flush=True)
@@ -139,7 +152,9 @@ def main() -> None:
 
     heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
     heartbeat_thread.start()
-    with ProcessPoolExecutor(max_workers=PROCESSES) as pool:
+    pool_workers = PROCESSES
+    pool = ProcessPoolExecutor(max_workers=pool_workers)
+    try:
         while True:
             try:
                 if not registered:
@@ -160,7 +175,7 @@ def main() -> None:
                             task["task_id"][:8], task["partition_id"], task["operation"])
                 started = time.perf_counter(); records = task["payload"]["records"]
                 futures = [pool.submit(compute_chunk, task["operation"], chunk, task["params"])
-                           for chunk in split_records(records, PROCESSES)]
+                           for chunk in split_records(records, pool_workers)]
                 result = merge_results([future.result() for future in futures], task["operation"])
                 sample = metrics(); sample["execution_seconds"] = time.perf_counter() - started
                 session.post(MASTER_URL + "/submit-result", json={"worker_id": WORKER_ID,
@@ -184,7 +199,15 @@ def main() -> None:
                         "task_id": task["task_id"], "error": f"{type(exc).__name__}: {exc}"}, timeout=5)
                     except requests.RequestException: pass
                     task = None
+                if isinstance(exc, BrokenProcessPool):
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    pool_workers = max(1, pool_workers // 2)
+                    logger.warning("Process pool dipulihkan dengan %s proses", pool_workers)
+                    pool = ProcessPoolExecutor(max_workers=pool_workers)
                 time.sleep(2)
+    finally:
+        stop_heartbeat.set()
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 if __name__ == "__main__":
